@@ -1,7 +1,7 @@
 Require Import ZArith.
 Require Import Bool.
 
-(*-------------------------- Syntax of Lambda+ --------------------------*)
+(*-------------------------- Syntax of Lambda+ -------------------------------*)
 (* Arithmetic operations to distinguish different operations *)
 Inductive aop : Type := 
 	| Add 		: aop
@@ -31,45 +31,48 @@ Inductive term : Type :=
 Inductive value : Type :=
   | Int 		: Z -> value										(* Integer value *)
   | Bool 		: bool -> value									(* Boolean value *)
-  | Closure : term -> environment -> value	(* <f_body, f_dec_env> *)
+  | Closure : term -> env -> value					(* <f_body, f_denv> *)
 (* Enviornment definition*)
-with environment : Type := 
+with env : Type := 
   | Empty
-  | Env : (value * environment) -> environment.
+  | Env : (value * env) -> env.
 
-(*-------------------------- Utility Functions --------------------------*)
+(*---------------------------- Utility Functions -----------------------------*)
 
 (* Extends the enviornment with a new binding *)
-Definition bind (env : environment) (v : value) := Env (v, env).
+Definition bind (env : env) (v : value) := Env (v, env).
 
 (* Gets the value at position i, i-th De Bruijn's index *)
-Fixpoint lookup (i : nat) (env : environment) : option value :=  
+Fixpoint lookup (i : nat) (env : env) : option value :=  
 	match env with
 	  | Empty => None
-	  | Env (e, r_env) => 
+	  | Env (e, renv) => 
 	  		if i =? 0 
 	  			then 
 	  				Some(e) 
 					else 
-						lookup (i - 1) (r_env)
+						lookup (i - 1) (renv)
 	end.
-
-
-(*-------------------------- Interpeter of Lambda+ --------------------------*)
-Fixpoint eval (fuel : nat) (t : term) (env : environment) : option value := 
+	
+(*---------------------------- Interpeter of Lambda+ -------------------------*)
+Fixpoint eval (fuel : nat) (t : term) (env : env) : option value := 
 	match fuel with 
-		| 0 => Some (Int 10)						(* No fuel left, diverging *)
-		| S r_fuel =>										(* S r_fuel == Successor(fuel) *)
+		| 0 => Some (Int 10)	(* No fuel left, diverging *)
+		
+		| S rfuel =>					(* S rfuel == fuel + 1, rfuel = remaning fuel *)
 				match t with 
 					| Var x => 
 							match (lookup x env) with
 								| Some v => Some v
 								| _ => None
 							end
+							
 					| EInt n => Some (Int n)
+					
 					| EBool b => Some (Bool b)
+					
 					| Aop aop t0 t1 => 
-							match (eval r_fuel t0 env, eval r_fuel t1 env) with
+							match (eval rfuel t0 env, eval rfuel t1 env) with
       					| (Some (Int i0), Some (Int i1)) =>
         						match aop with
         							| Add => Some (Int (i0 + i1))
@@ -78,8 +81,9 @@ Fixpoint eval (fuel : nat) (t : term) (env : environment) : option value :=
         						end
       					| _ => None
 							end
+							
 					| BBop bop t0 t1 => 
-							match (eval r_fuel t0 env, eval r_fuel t1 env) with
+							match (eval rfuel t0 env, eval rfuel t1 env) with
 								| (Some (Bool b0), Some (Bool b1)) => 
 									match bop with
 										| And => Some (Bool (andb b0 b1))
@@ -95,30 +99,34 @@ Fixpoint eval (fuel : nat) (t : term) (env : environment) : option value :=
       							end
       					| _ => None
       				end
+      				
 					| Not t0 => 
-							match (eval r_fuel t0 env) with 
+							match (eval rfuel t0 env) with 
 								| Some (Bool b0) => Some (Bool (negb b0))
 								| _ => None
 							end
+							
 					| If t t0 t1 => 
-							match (eval r_fuel t env) with 
-								| Some (Bool true) => eval r_fuel t0 env
-								| Some (Bool false) => eval r_fuel t1 env
+							match (eval rfuel t env) with 
+								| Some (Bool true) => eval rfuel t0 env
+								| Some (Bool false) => eval rfuel t1 env
 								| _ => None
 							end
 					| Lambda t => Some (Closure t env)
+					
 					| Apply t1 t0 => 
-							let param_val := eval r_fuel t0 env 
+							let param_val := eval rfuel t0 env 
 							in 
 								match param_val with
 									| Some v => 
-											let f_closure := eval r_fuel t1 env 
+											let f_closure := eval rfuel t1 env 
 												in
 													match f_closure with 
-														| Some (Closure body dec_env) => 
-																let new_env := bind dec_env v
+														(* denv = Declaration Env*)
+														| Some (Closure body denv) => 
+																let new_env := bind denv v
 																in 
-																	eval r_fuel body new_env
+																	eval rfuel body new_env
 														| _ => None
 													end
 									| _ => None
@@ -126,13 +134,14 @@ Fixpoint eval (fuel : nat) (t : term) (env : environment) : option value :=
 				end
 	end.
 
-(*-------------------------- Syntax of VM --------------------------*)
+(*-------------------------- Syntax of the VM --------------------------------*)
 Inductive mterm : Type :=
   | PushVar     	: mvar -> mterm
   | PushClosure 	: mterm  -> mterm
   | PushVal   		: mvalue -> mterm
   | MAop      		: aop -> mterm
   | MBop					: bop -> mterm
+  | MNot
 	| MIf						: mterm -> mterm -> mterm
   | MApply
   | Return
@@ -156,17 +165,17 @@ Inductive mstack : Type :=
 	| SEmpty 
 	| Stack : (mvalue * mstack) -> mstack.
 
-(*-------------------------- Utility Functions --------------------------*)
+(*-------------------------- Utility Functions -------------------------------*)
 
 Definition mbind (env : menv) (v : mvalue) := MEnv (v, env).
 Fixpoint mlookup (i : nat) (env : menv) : option mvalue :=  
 	match env with
 		| MEmpty => None
-		| MEnv (e, r_env) => 
+		| MEnv (e, renv) => 
 				if i =? 0 
 					then Some(e) 
 				else 
-					mlookup (i - 1) (r_env)
+					mlookup (i - 1) (renv)
 	end.
 
 Definition push (s : mstack) (v : mvalue) := Stack (v, s).
@@ -175,203 +184,242 @@ Definition pop (s : mstack) :=
 	  | SEmpty => (None, None)
 	  | Stack (v, s') => (Some v, Some s')
 	end.
-	
-Notation "A ; B" := (Concat A B) (at level 80, right associativity).
 
-
-(*-------------------------- States of the VM --------------------------*)
-Inductive state : Type := 
-  | State : mterm -> menv -> mstack -> state    (* Intermediate Step *)
-  | Final : mvalue -> state									 	  (* Final Step *)
+(*-------------------------- MSteps of the VM --------------------------------*)
+Inductive mstep : Type := 
+  | MStep : mterm -> menv -> mstack -> mstep
+  | MFStep : mvalue -> mstep
   | Error.
 
-(*-------------------------- VM Interpreter --------------------------*)
-Fixpoint meval (fuel: nat) (s : state) : state := 
-	match fuel with 
-		| 0 => Error 
-		| S r_fuel => 
-				match s with
-					| State c env stack => 
-							match c with 
-								| Skip => 
-										match (pop stack) with 
-											| (None, _) => Error
-											| (Some v, Some s1) => 
-													match v with 
-														| MRecord _ _ => Error
-														| _ => Final v 
-													end
-											| (_, _) => Error
-										end
-								| Concat c1 c2 => 
-										match c1 with 
-											| PushVal (v) => meval r_fuel (State c2 env (push stack v))
-											| PushVar (MVar x) => 
-												 	match (mlookup x env) with
-												 		| Some v => meval r_fuel (State c2 env (push stack v))
-												 		| None => Error
-												 	end
-											| PushClosure c3 => 
-													meval r_fuel (State c2 env (push stack (MClosure c3 env)))
-											| MAop aop => 
-													match (pop stack) with 
-														| (None, _) => Error 
-														| (Some v1, Some s1) => 
-																match (pop s1) with 
-																	| (None, _) => Error
-																	| (Some v2, Some s2) => 
-																			match v1, v2 with
-																				| MInt z1, MInt z2 => 
-																						match aop with 
-																							| Add => meval r_fuel (State c2 env (push s2 (MInt (z1 + z2))))
-																							| Sub => meval r_fuel (State c2 env (push s2 (MInt (z1 - z2))))
-																							| Mul => meval r_fuel (State c2 env (push s2 (MInt (z1 * z2))))
-																						end
-																				| _, _ => Error
-																			end
-																	| (_, _) => Error
-																end
-														| (_, _) => Error
-													end
-											| MBop bop => 
-													match (pop stack) with 
-														| (None, _) => Error
-														| (Some v1, Some s1) => 
-																match (pop s1) with 
-																	| (None, _) => Error 
-																	| (Some v2, Some s2) => 
-																			match v1, v2 with 
-																				| MInt z1, MInt z2 => 
-																						match bop with 
-																							| Less => 
-																										meval r_fuel (State c2 env (push s2 (MBool (Z.ltb z1 z2))))
-																							| Equal => 
-																										meval r_fuel (State c2 env (push s2 (MBool (Z.eqb z1 z2))))
-																							| Greater => 
-																										meval r_fuel (State c2 env (push s2 (MBool (Z.gtb z1 z2))))
-																							| _ => Error
-																						end
-																				| MBool b1, MBool b2 => 
-																						match bop with
-																							| And => meval r_fuel (State c2 env (push s2 (MBool (andb b1 b2))))
-																							| Or => meval r_fuel (State c2 env (push s2 (MBool (orb b1 b2))))
-																							| _ => Error
-																						end
-																				| _, _ => Error
-																			end
-																	| (_, _) => Error
-																	end 
-															| (_, _) => Error
-													end
-											| MIf c3 c4 => 
-													match (pop stack) with 
-														| (None, _) => Error
-														| (Some v, Some s1) => 
-																match v with 
-																	| MBool b => 
-																			if b 
-																				then 
-																					meval r_fuel (State (c3; c2) env s1)
-																				else 
-																					meval r_fuel (State (c4; c2) env s1)
-																	| _ => Error
-																end
-														| (_, _) => Error
-													end
-											| MApply => 
-													match (pop stack) with
-														| (None, _) => Error
-														| (Some v, Some s1) => 
-																match (pop s1) with  
-																	| (None, _) => Error
-																	| (Some v1, Some s2) => 
-																			match v1 with 
-																				| MClosure c' dec_env => 
-																						meval r_fuel (State c' (mbind dec_env v) (push s2 (MRecord c2 env)))
-																				| _ => Error
-																			end
-																	| (_, _) => Error
-																end
-														| (_, _) => Error 
-													end
-											| Return => 
-													match (pop stack) with 
-														| (None, _) => Error
-														| (Some v, Some s1) => 
-																match (pop s1) with 
-																	| (None, _) => Error
-																	| (Some v1, Some s2) => 
-																			match v1 with 
-																				| MRecord c' env' => meval r_fuel (State c' env' (push s2 v))
-																				| _ => Error
-																			end
-																	| (_, _) => Error
-																end
-														| (_, _) => Error
-													end
-											| _ => Error
-										end
-								| c1 => meval r_fuel ((State (c1; Skip) env stack))
+(*-------------------------- VM Interpreter ----------------------------------*)
+Fixpoint meval (fuel: nat) (s : mstep) : mstep := match fuel with 
+	| 0 => Error
+	| S rfuel => match s with
+	
+		| MStep c env stack => match c with
+		 
+			| Skip => match pop stack with 
+				| (Some v, Some sa1p) => match v with 
+						| MRecord _ _ => Error
+						| _ => MFStep v 
+						end
+				| _ => Error
+				end
+				
+			| Concat c1 c2 => match c1 with 
+			
+				| Concat c3 c4 => meval rfuel (MStep (Concat c3 (Concat c4 c2)) env stack) 
+				
+				| Skip => meval rfuel (MStep c2 env stack)
+			
+				| PushVal v => meval rfuel (MStep c2 env (push stack v))
+				
+				| PushVar (MVar x) => match (mlookup x env) with
+			 		| Some v => meval rfuel (MStep c2 env (push stack v))
+			 		| _ => Error
+				 	end
+				 	
+				| PushClosure c3 => meval rfuel (MStep c2 env (push stack (MClosure c3 env)))
+				
+				| MAop aop => match pop stack with 
+	        | (Some (MInt z1), Some sa1p) => match pop sa1p with 
+      			| (Some (MInt z2), Some sa2p) => match aop with 
+                | Add => meval rfuel (MStep c2 env (push sa2p (MInt (z1 + z2))))
+                | Sub => meval rfuel (MStep c2 env (push sa2p (MInt (z1 - z2))))
+                | Mul => meval rfuel (MStep c2 env (push sa2p (MInt (z1 * z2))))
+                end
+            | _ => Error
+            end
+		        | _ => Error
+					end
+					
+  			| MBop bop => match pop stack with 
+      		| (Some v1, Some sa1p) => match pop sa1p with 
+		      	| (Some v2, Some sa2p) => match v1, v2 with 
+		          | MInt z1, MInt z2 => match bop with 
+		            | Less => meval rfuel (MStep c2 env (push sa2p (MBool (Z.ltb z1 z2))))
+		            | Equal => meval rfuel (MStep c2 env (push sa2p (MBool (Z.eqb z1 z2))))
+		            | Greater => meval rfuel (MStep c2 env (push sa2p (MBool (Z.gtb z1 z2))))
+		            | _ => Error
+		        		end
+		        	| MBool b1, MBool b2 => match bop with
+		      		  | And => meval rfuel (MStep c2 env (push sa2p (MBool (andb b1 b2))))
+		        	  | Or => meval rfuel (MStep c2 env (push sa2p (MBool (orb b1 b2))))
+		        	  | _ => Error 
+		        		end
+		  				| _, _ => Error
 							end
-					| Error => Error
+						| _ => Error
+		 	 			end 
+					|	 _ => Error 
+	    		end
+	    		
+	    	| MNot => match pop stack with 
+	    		| (Some (MBool b), Some sa1p) => 
+	    				meval 
+	    					rfuel 
+	    					(MStep c2 env (push sa1p (MBool (negb b))))
+	    		| _ => Error
+	    		end
+	    		
+				| MIf c3 c4 => match pop stack with 
+					| (Some (MBool b), Some sa1p) => match b with 
+						| true => meval rfuel (MStep (Concat c3 c2) env sa1p)
+						| false => meval rfuel (MStep (Concat c4 c2) env sa1p)
+						end
 					| _ => Error
+					end
+					
+				| MApply => match pop stack with
+					| (Some v1, Some sa1p) => match pop sa1p with  
+						| (Some v2, Some sa2p) => match v2 with 
+							| MClosure c' denv => 
+									meval 
+										rfuel 
+										(MStep c' (mbind denv v1) (push sa2p (MRecord c2 env)))
+							| _ => Error 
+							end
+						| _ => Error
+						end
+					| _ => Error
+					end
+					
+				| Return => match pop stack with 
+					| (Some v, Some sa1p) => match pop sa1p with 
+							| (Some v1, Some sa2p) => match v1 with 
+									| MRecord c' env' => meval rfuel (MStep c' env' (push sa2p v))
+									| _ => Error 
+									end
+							| _ => Error
+							end
+					| _ => Error
+					end
 				end
-		end.
-
-(*-------------------------- Compilation Step --------------------------*)
+			| c1 => meval rfuel (MStep (Concat c1 Skip) env stack)
+			end
+		| _ => Error
+		end
+	end.
+	
+(*-------------------------- Compilation: term -> mterm ----------------------*)
 Fixpoint compile (t: term) : option mterm :=
-	match t with 
-		|	EInt i => Some (PushVal (MInt i))
-		| EBool b => Some (PushVal (MBool b))
-		| Var x => Some (PushVar (MVar x))
-		| Aop aop t0 t1 => 
-				match (compile t0), (compile t1) with 
-					| Some ct0, Some ct1 => Some (ct0;ct1; MAop aop)
-					| _, None => None
-					| None, _ => None
-				end
-		| BBop bop t0 t1 => 
-				match (compile t0), (compile t1) with 
-					| Some ct0, Some ct1 => Some (ct0;ct1; MBop bop)
-					| _, None => None
-					| None, _ => None
-				end
-		| Not t => None
-		| If t t0 t1 => 
-				match (compile t), (compile t0), (compile t1) with 
-					| None, _, _ => None
-					| _, None, _ => None
-					| _, _, None => None
-					| Some ct, Some ct0, Some ct1 => Some (ct; (MIf (ct0) (ct1)))
-				end
-		| Lambda t => 
-				match (compile t) with 
-					| Some ct => Some (PushClosure(ct; Return))
-					| _ => None
-				end
-		| Apply t0 t1 => 
-				match (compile t0), (compile t1) with 
-					| Some ct0, Some ct1 => Some (ct0; ct1; MApply)
-					| _, None => None
-					| None, _ => None
-				end
-	end.	
+    match t with 
+      | EInt i => Some (PushVal (MInt i))
+      
+      | EBool b => Some (PushVal (MBool b))
+      
+      | Var x => Some (PushVar (MVar x))
+      
+      | Aop aop t0 t1 => 
+          match (compile t0), (compile t1) with 
+              | Some ct0, Some ct1 => Some (Concat ct0 (Concat ct1 (MAop aop)))
+              | _, _ => None
+          end
+          
+      | BBop bop t0 t1 => 
+          match (compile t0), (compile t1) with 
+              | Some ct0, Some ct1 => Some (Concat ct0 (Concat ct1 (MBop bop)))
+              | _, _ => None
+          end
+          
+      | Not t => 
+      		match (compile t) with
+      				| Some ct => Some (Concat ct MNot)
+      				| _ => None 
+      		end
+      		
+      | If t t0 t1 => 
+          match (compile t), (compile t0), (compile t1) with
+              | Some ct, Some ct0, Some ct1 => Some (Concat ct (MIf ct0 ct1)) 
+              | _, _, _ => None
+          end
+          
+      | Lambda t => 
+          match (compile t) with 
+              | Some ct => Some (PushClosure(Concat ct Return))
+              | _ => None
+          end
+          
+      | Apply t0 t1 => 
+          match (compile t0), (compile t1) with 
+              | Some ct0, Some ct1 => Some (Concat ct0 (Concat ct1 MApply))
+              | _, _ => None
+          end
+          
+    end.
+(*-------------------------------- Tests -------------------------------------*)
+(* 
+	In the context of Coq proofs, when you use reflexivity, Coq checks if 
+	the goal is already in its simplest form, and if it is, the proof is complete. 
+	If not, it tries to simplify both sides of the equation until they match, 
+	at which point it concludes the proof.
+*)
 
-(*Compute eval 100 (Aop Add (EInt 5) (EInt 3)) Empty.*)
+(* Interpreter Tests*)
+Definition tadd := (Aop Add (EInt 3) (EInt 5)).
+Example test_eval_add : eval 100 tadd Empty = Some (Int 8).
+Proof. reflexivity. Qed.
 
-Definition term1 := (Aop Add (EInt 5) (EInt 3)).
-(*Compute compile term1.*)
+Definition tand := (BBop And (EBool true) (EBool false)).
+Example test_eval_and : eval 100 tand Empty = Some (Bool false).
+Proof. reflexivity. Qed.
 
-Definition mytest := 
-	match (compile term1) with 
-		| Some t => meval 100 (State t MEmpty SEmpty)
+Definition tnot := (Not (EBool true)).
+Example text_eval_not : eval 100 tnot Empty = Some (Bool false).
+Proof. reflexivity. Qed.
+
+Definition tiftrue := (If (EBool true) (EInt 3) (EInt 5)).
+Example test_eval_iftrue : eval 100 tiftrue Empty = Some (Int 3).
+Proof. reflexivity. Qed.
+
+Definition tapply := (Apply (Lambda (Aop Add (EInt 5) (Var 0))) (EInt 3)).
+Example test_eval_apply : eval 100 tapply Empty = Some (Int 8).
+Proof. reflexivity. Qed.
+
+(* Compiler Test *)
+Compute compile tadd.
+Compute compile tand.
+Compute compile tnot.
+Compute compile tiftrue.
+Compute compile tapply.
+
+(* VM Test *)
+Definition test_madd := 
+	match (compile tadd) with 
+		| Some t => meval 100 (MStep t MEmpty SEmpty)
 		| _ => Error
 	end.
+Example test_meval_add : test_madd = MFStep (MInt 8).
+Proof. reflexivity. Qed.
 
+Definition test_mand := 
+	match (compile tand) with 
+		| Some t => meval 100 (MStep t MEmpty SEmpty)
+		| _ => Error
+	end.
+Example test_meval_and : test_mand = MFStep (MBool false).
+Proof. reflexivity. Qed.
 
-Compute mytest.
+Definition test_mnot := 
+	match (compile tnot) with 
+		| Some t => meval 100 (MStep t MEmpty SEmpty)
+		| _ => Error
+	end.
+Example test_meval_not : test_mnot = MFStep (MBool false).
+Proof. reflexivity. Qed.
 
+Definition test_mif := 
+	match (compile tiftrue) with 
+		| Some t => meval 100 (MStep t MEmpty SEmpty)
+		| _ => Error
+	end.
+Example test_meval_if : test_mif = MFStep (MInt 3).
+Proof. reflexivity. Qed.
 
-
-
-
+Definition test_mapply := 
+	match (compile tapply) with 
+		| Some t => meval 100 (MStep t MEmpty SEmpty)
+		| _ => Error
+	end.
+Example test_meval_apply : test_mapply = MFStep (MInt 8).
+Proof. reflexivity. Qed.
