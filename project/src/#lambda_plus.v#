@@ -175,7 +175,7 @@ Definition pop (s : mstack) :=
 	  | SEmpty => (None, None)
 	  | Stack (v, s') => (Some v, Some s')
 	end.
-
+	
 Notation "A ; B" := (Concat A B) (at level 80, right associativity).
 
 
@@ -271,7 +271,7 @@ Fixpoint meval (fuel: nat) (s : state) : state :=
 																	| MBool b => 
 																			if b 
 																				then 
-																					meval r_fuel (State (Concat c3 c2) env s1)
+																					meval r_fuel (State (c3; c2) env s1)
 																				else 
 																					meval r_fuel (State (c4; c2) env s1)
 																	| _ => Error
